@@ -1,0 +1,56 @@
+---
+- name: Monit pre-requisite check for EMAIL
+  fail: msg="Please define the variable email to receive alerts from Monit in all.yml file uder group_vars in your project"
+  when: email is undefined
+
+- name: Check if monit binary already exists in the server
+  stat: "path=/home/ec2-user/monit-5.20.0/bin/monit"
+  register: monit_exists
+
+- name: Download monit binary from Internet
+  get_url:
+    url: "https://mmonit.com/monit/dist/binary/5.20.0/monit-5.20.0-linux-x64.tar.gz"
+    dest: "/home/ec2-user/monit.tar.gz"
+    validate_certs: false
+  when: monit_exists.stat.exists == False
+
+- name: Untar monit binary
+  unarchive:
+    src: "/home/ec2-user/monit.tar.gz"
+    dest: "/home/ec2-user"
+    remote_src: True
+  when: monit_exists.stat.exists == False
+
+- name: Create log directory
+  file: 
+    path: /home/ec2-user/monit-5.20.0/log
+    state: directory
+
+- name: Deploying monit config file template
+  template:
+    src: monitrc.j2
+    dest: "/home/ec2-user/monit-5.20.0/conf/monitrc"
+    mode: 0600
+  register: monit_config
+
+- name: set path in .bash_profile
+  lineinfile:
+    dest: "/home/ec2-user/.bash_profile"
+    line: 'export PATH=$PATH:/home/ec2-user/monit-5.20.0/bin'
+    regexp: 'export PATH=\$PATH:\/home\/ec2-user\/monit-5.20.0\/bin'
+    state: present
+
+- name: Create a hidden soft link to monit config file in home directory
+  file:
+    src: "/home/ec2-user/monit-5.20.0/conf/monitrc"
+    dest: "/home/ec2-user/.monitrc"
+    state: link
+
+- name: start monit if it's not running or awake monit if it's already running
+  shell: . ~/.bash_profile && /home/ec2-user/monit-5.20.0/bin/monit -c /home/ec2-user/monit-5.20.0/conf/monitrc
+
+- name: Reload monit if there are any changes in monit config file
+  shell: . ~/.bash_profile && /home/ec2-user/monit-5.20.0/bin/monit reload
+  when: monit_exists.stat.exists == True and monit_config|changed
+
+
